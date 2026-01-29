@@ -7,10 +7,34 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
+	"time"
 )
 
 type AccountResponse struct {
 	PUUID string `json:"puuid"`
+}
+
+type Metadata struct {
+	MatchId      string
+	Participants []string
+}
+
+type InfoParticipants struct {
+	ChampionName string
+	Kills        int
+	Deaths       int
+	Assists      int
+}
+
+type Info struct {
+	GameDuration time.Duration
+	Participants []InfoParticipants
+}
+
+type MatchResponse struct {
+	//Metadata Metadata
+	Info Info
 }
 
 func main() {
@@ -49,14 +73,40 @@ func statsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	results := make([]MatchResponse, 0)
+
+	for _, id := range matchIds {
+		data, err := fetchMatchDetails(id)
+		if err != nil {
+			continue
+
+		}
+
+		data.Info.GameDuration = data.Info.GameDuration * time.Second
+		results = append(results, data)
+	}
+
+	fmt.Println(results)
 	json.NewEncoder(w).Encode(matchIds)
-	w.Write(data)
 
 }
 
 func fetchFromRiot(summoner string) ([]byte, error) {
 	apiKey := os.Getenv("RIOT_API_KEY")
-	url := "https://americas.api.riotgames.com/riot/account/v1/accounts/by-riot-id/LAP Pithanjng/LAPID"
+
+	parts := strings.Split(summoner, "#")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("invalid summoner format, use name#tag")
+	}
+
+	gameName := url.PathEscape(parts[0])
+	tagLine := url.PathEscape(parts[1])
+
+	url := fmt.Sprintf(
+		"https://americas.api.riotgames.com/riot/account/v1/accounts/by-riot-id/%s/%s",
+		gameName,
+		tagLine,
+	)
 
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("X-Riot-Token", apiKey)
@@ -66,6 +116,7 @@ func fetchFromRiot(summoner string) ([]byte, error) {
 		return nil, err
 	}
 
+	fmt.Println("SUMMONER RECEBIDO:", summoner)
 	defer resp.Body.Close()
 	return io.ReadAll(resp.Body)
 }
@@ -98,4 +149,26 @@ func fetchMatchIDs(puuid string) ([]string, error) {
 
 	return matchIDs, nil
 
+}
+
+func fetchMatchDetails(id string) (MatchResponse, error) {
+	apiKey := os.Getenv("RIOT_API_KEY")
+	escapedId := url.PathEscape(id)
+	url := "https://americas.api.riotgames.com/lol/match/v5/matches/" + escapedId
+
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("X-Riot-Token", apiKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return MatchResponse{}, err
+	}
+
+	defer resp.Body.Close()
+
+	var matchInfo MatchResponse
+
+	err = json.NewDecoder(resp.Body).Decode(&matchInfo)
+
+	return matchInfo, nil
 }
