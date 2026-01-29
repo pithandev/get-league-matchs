@@ -75,23 +75,40 @@ func statsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	results := make([]MatchResponse, 0)
 
-	for _, id := range matchIds {
-		data, err := fetchMatchDetails(id)
-		if err != nil {
-			continue
+	jobs := make(chan string)
+	results := make(chan MatchResponse)
 
+	workerCount := 5
+	var wg sync.WaitGroup
+
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go matchWorker(&wg, jobs, results)
+	}
+
+	go func() {
+		for _, id := range matchIds {
+			jobs <- id
 		}
+		close(jobs)
+	}()
 
-		data.Info.GameDuration = data.Info.GameDuration * time.Second
-		results = append(results, data)
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	matches := make([]MatchResponse, 0)
+
+	for match := range results {
+		matches = append(matches, match)
 	}
 
 	fmt.Println("tempo: ", time.Since(start))
 	w.Header().Set("Content-Type", "application/json")
 
-	json.NewEncoder(w).Encode(results)
+	json.NewEncoder(w).Encode(matches)
 
 }
 
