@@ -17,15 +17,15 @@ type AccountResponse struct {
 }
 
 type Metadata struct {
-	MatchId      string
-	Participants []string
+	MatchId string `json:"matchId"`
 }
 
 type InfoParticipants struct {
-	ChampionName string
-	Kills        int
-	Deaths       int
-	Assists      int
+	ChampionName string `json:"championName"`
+	Kills        int    `json:"kills"`
+	Deaths       int    `json:"deaths"`
+	Assists      int    `json:"assists"`
+	PUUID        string `json:"puuid"`
 }
 
 type Info struct {
@@ -34,8 +34,17 @@ type Info struct {
 }
 
 type MatchResponse struct {
-	//Metadata Metadata
-	Info Info
+	Metadata Metadata `json:"metadata"`
+	Info     Info     `json:"info"`
+}
+
+type PlayerMatchStats struct {
+	MatchID      string
+	Champion     string
+	Kills        int
+	Deaths       int
+	Assists      int
+	GameDuration time.Duration
 }
 
 func main() {
@@ -77,18 +86,21 @@ func statsHandler(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 
 	matchIdChan := produceMatchIDs(matchIDs)
+
 	matchesChan := fetchMatchesPipeline(matchIdChan, 5)
 
-	matches := make([]MatchResponse, 0)
+	playerStatsChan := extractPlayerStats(matchesChan, puuid)
 
-	for match := range matchesChan {
-		matches = append(matches, match)
+	stats := make([]PlayerMatchStats, 0)
+
+	for s := range playerStatsChan {
+		stats = append(stats, s)
 	}
 
 	fmt.Println("tempo: ", time.Since(start))
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(matches)
+	json.NewEncoder(w).Encode(stats)
 
 }
 
@@ -241,4 +253,35 @@ func fetchMatchesPipeline(matchIDs <-chan string, workerCount int) <-chan MatchR
 	}()
 
 	return results
+}
+
+func extractPlayerStats(in <-chan MatchResponse, targetPUUID string) <-chan PlayerMatchStats {
+	out := make(chan PlayerMatchStats)
+
+	go func() {
+		defer close(out)
+
+		for match := range in {
+			for _, p := range match.Info.Participants {
+				if p.PUUID != targetPUUID {
+					continue
+				}
+
+				stats := PlayerMatchStats{
+					MatchID:      match.Metadata.MatchId,
+					Champion:     p.ChampionName,
+					Kills:        p.Kills,
+					Deaths:       p.Deaths,
+					Assists:      p.Assists,
+					GameDuration: match.Info.GameDuration,
+				}
+
+				fmt.Println(stats.GameDuration)
+				out <- stats
+				break
+			}
+		}
+	}()
+
+	return out
 }
