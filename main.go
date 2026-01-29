@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -73,6 +74,7 @@ func statsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	start := time.Now()
 	results := make([]MatchResponse, 0)
 
 	for _, id := range matchIds {
@@ -86,8 +88,10 @@ func statsHandler(w http.ResponseWriter, r *http.Request) {
 		results = append(results, data)
 	}
 
-	fmt.Println(results)
-	json.NewEncoder(w).Encode(matchIds)
+	fmt.Println("tempo: ", time.Since(start))
+	w.Header().Set("Content-Type", "application/json")
+
+	json.NewEncoder(w).Encode(results)
 
 }
 
@@ -156,12 +160,19 @@ func fetchMatchDetails(id string) (MatchResponse, error) {
 	escapedId := url.PathEscape(id)
 	url := "https://americas.api.riotgames.com/lol/match/v5/matches/" + escapedId
 
-	req, _ := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return MatchResponse{}, err
+	}
 	req.Header.Set("X-Riot-Token", apiKey)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return MatchResponse{}, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return MatchResponse{}, fmt.Errorf("riot api error: %d", resp.StatusCode)
 	}
 
 	defer resp.Body.Close()
@@ -171,4 +182,19 @@ func fetchMatchDetails(id string) (MatchResponse, error) {
 	err = json.NewDecoder(resp.Body).Decode(&matchInfo)
 
 	return matchInfo, nil
+}
+
+func matchWorker(wg *sync.WaitGroup, jobs <-chan string, results chan<- MatchResponse) {
+	defer wg.Done()
+
+	for matchId := range jobs {
+		match, err := fetchMatchDetails(matchId)
+		if err != nil {
+			continue
+		}
+
+		match.Info.GameDuration *= time.Second
+
+		results <- match
+	}
 }
