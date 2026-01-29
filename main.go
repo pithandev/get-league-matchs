@@ -68,7 +68,7 @@ func statsHandler(w http.ResponseWriter, r *http.Request) {
 
 	puuid := account.PUUID
 
-	matchIds, err := fetchMatchIDs(puuid)
+	matchIDs, err := fetchMatchIDs(puuid)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -76,38 +76,18 @@ func statsHandler(w http.ResponseWriter, r *http.Request) {
 
 	start := time.Now()
 
-	jobs := make(chan string)
-	results := make(chan MatchResponse)
-
-	workerCount := 5
-	var wg sync.WaitGroup
-
-	for i := 0; i < workerCount; i++ {
-		wg.Add(1)
-		go matchWorker(&wg, jobs, results)
-	}
-
-	go func() {
-		for _, id := range matchIds {
-			jobs <- id
-		}
-		close(jobs)
-	}()
-
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
+	matchIdChan := produceMatchIDs(matchIDs)
+	matchesChan := fetchMatchesPipeline(matchIdChan, 5)
 
 	matches := make([]MatchResponse, 0)
 
-	for match := range results {
+	for match := range matchesChan {
 		matches = append(matches, match)
 	}
 
 	fmt.Println("tempo: ", time.Since(start))
-	w.Header().Set("Content-Type", "application/json")
 
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(matches)
 
 }
@@ -214,4 +194,51 @@ func matchWorker(wg *sync.WaitGroup, jobs <-chan string, results chan<- MatchRes
 
 		results <- match
 	}
+}
+
+func produceMatchIDs(matchIDs []string) <-chan string {
+	out := make(chan string)
+
+	go func() {
+		defer close(out)
+		for _, id := range matchIDs {
+			out <- id
+		}
+	}()
+
+	return out
+
+}
+
+func fetchMatchDetailsWorker(wg *sync.WaitGroup, jobs <-chan string, results chan<- MatchResponse) {
+	defer wg.Done()
+
+	for matchID := range jobs {
+
+		match, err := fetchMatchDetails(matchID)
+		if err != nil {
+			continue
+		}
+
+		match.Info.GameDuration *= time.Second
+		results <- match
+
+	}
+}
+
+func fetchMatchesPipeline(matchIDs <-chan string, workerCount int) <-chan MatchResponse {
+	results := make(chan MatchResponse)
+	var wg sync.WaitGroup
+
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go fetchMatchDetailsWorker(&wg, matchIDs, results)
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	return results
 }
