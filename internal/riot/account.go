@@ -1,42 +1,41 @@
 package riot
 
 import (
+	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 )
 
-func FetchPUUID(summoner string) (string, error) {
-	apiKey := os.Getenv("RIOT_API_KEY")
-
+func (c *Client) FetchPUUID(summoner string) (string, error) {
 	parts := strings.Split(summoner, "#")
 	if len(parts) != 2 {
 		return "", fmt.Errorf("invalid summoner format, use name#tag")
 	}
 
-	gameName := url.PathEscape(parts[0])
-	tagLine := url.PathEscape(parts[1])
+	game := url.PathEscape(parts[0])
+	tag := url.PathEscape(parts[1])
 
 	url := fmt.Sprintf(
 		"https://americas.api.riotgames.com/riot/account/v1/accounts/by-riot-id/%s/%s",
-		gameName,
-		tagLine,
+		game,
+		tag,
 	)
 
 	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Set("X-Riot-Token", apiKey)
+	req.Header.Set("X-Riot-Token", c.APIKey)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return "", err
 	}
-
-	fmt.Println("SUMMONER RECEBIDO:", summoner)
 	defer resp.Body.Close()
 
-	summ, _ := io.ReadAll(resp.Body)
-	return string(summ), nil
+	var data struct {
+		PUUID string `json:"puuid"`
+	}
+
+	err = json.NewDecoder(resp.Body).Decode(&data)
+	return data.PUUID, err
 }

@@ -1,12 +1,16 @@
 package pipeline
 
 import (
-	"fmt"
+	"time"
 
 	"github.com/pithandev/get-league-matchs/internal/domain"
 )
 
-func ExtractPlayer(in <-chan domain.MatchResponse, targetPUUID string) <-chan domain.PlayerMatchStats {
+func ExtractPlayer(
+	in <-chan domain.MatchResponse,
+	puuid string,
+) <-chan domain.PlayerMatchStats {
+
 	out := make(chan domain.PlayerMatchStats)
 
 	go func() {
@@ -14,22 +18,15 @@ func ExtractPlayer(in <-chan domain.MatchResponse, targetPUUID string) <-chan do
 
 		for match := range in {
 			for _, p := range match.Info.Participants {
-				if p.PUUID != targetPUUID {
-					continue
+				if p.PUUID == puuid {
+					out <- domain.PlayerMatchStats{
+						Champion: p.ChampionName,
+						Kills:    p.Kills,
+						Deaths:   p.Deaths,
+						Assists:  p.Assists,
+						Duration: time.Duration(match.Info.GameDuration) * time.Second,
+					}
 				}
-
-				stats := domain.PlayerMatchStats{
-					MatchID:      match.Metadata.MatchId,
-					Champion:     p.ChampionName,
-					Kills:        p.Kills,
-					Deaths:       p.Deaths,
-					Assists:      p.Assists,
-					GameDuration: match.Info.GameDuration,
-				}
-
-				fmt.Println(stats.GameDuration)
-				out <- stats
-				break
 			}
 		}
 	}()

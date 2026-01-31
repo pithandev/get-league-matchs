@@ -1,20 +1,21 @@
 package main
 
 import (
-	"fmt"
+	"log"
 	"net/http"
-	"os"
 
 	"github.com/joho/godotenv"
 	"github.com/pithandev/get-league-matchs/internal/handler"
+	"github.com/pithandev/get-league-matchs/internal/riot"
 )
 
 func main() {
-	godotenv.Load()
-	fmt.Println("RIOT_API_KEY =", os.Getenv("RIOT_API_KEY"))
+	_ = godotenv.Load()
 
-	http.HandleFunc("/stats", handler.StatsHandler)
-	fmt.Println("Server running on :8080")
-	http.ListenAndServe(":8080", nil)
+	riotClient := riot.NewClient()
 
+	http.HandleFunc("/stats", handler.StatsHandler(riotClient))
+
+	log.Println("Server running on :8080")
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }

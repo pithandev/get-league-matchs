@@ -1,15 +1,14 @@
 package pipeline
 
-func ProduceMatchIDs(matchIDs []string) <-chan string {
+func ProduceMatchIDs(ids []string) <-chan string {
 	out := make(chan string)
 
 	go func() {
 		defer close(out)
-		for _, id := range matchIDs {
+		for _, id := range ids {
 			out <- id
 		}
 	}()
 
 	return out
-
 }
